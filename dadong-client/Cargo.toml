@@ -1,0 +1,22 @@
+[package]
+name = "dadong-client"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.*", features = [
+    "io-util",
+    "macros",
+    "net",
+    "parking_lot",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+
+tokio-stream = "*"
+lazy_static = "1.4.*"
+futures = { version = "0.3.*" }
+dotenv = "*"

@@ -1,0 +1,109 @@
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  push:
+
+name: build-and-release
+
+jobs:
+  build-and-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64-linux-gnu
+          - arch-name: x86_64-linux-gnu
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+            file-ext:
+          # x86_64-linux-musl
+          - arch-name: x86_64-linux-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            cross: true
+            file-ext:
+          # aarch64-linux-gnu
+          - arch-name: aarch64-linux-gnu
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+            file-ext:
+          # aarch64-linux-musl
+          - arch-name: aarch64-linux-musl
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            cross: true
+            file-ext:
+          # aarch64-apple-darwin
+          - arch-name: aarch64-apple-darwin
+            os: macos-latest
+            target: aarch64-apple-darwin
+            cross: true
+            file-ext:
+          # mipsel-linux-musl
+          - arch-name: mipsel-linux-musl
+            os: ubuntu-latest
+            target: mipsel-unknown-linux-musl
+            cross: true
+            file-ext:
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Get the latest tag
+        id: tag
+        uses: "WyriHaximus/github-action-get-previous-tag@v1"
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.74.0
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build server
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: build
+          args: --release -p dadong-server --target ${{ matrix.target }}
+
+      - name: Build client
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.cross }}
+          command: build
+          args: --release -p dadong-client --target ${{ matrix.target }}
+
+      - name: Move binaries
+        run: |
+          mkdir artifacts/
+          mv target/${{ matrix.target }}/release/dadong-server${{ matrix.file-ext }} artifacts/dadong-server-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}
+          mv target/${{ matrix.target }}/release/dadong-client${{ matrix.file-ext }} artifacts/dadong-client-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}
+
+      - name: Calculate SHA256
+        run: |
+          cd artifacts/
+          openssl dgst -sha256 -r dadong-server-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }} > dadong-server-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}.sha256sum
+          openssl dgst -sha256 -r dadong-client-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }} > dadong-client-${{ steps.tag.outputs.tag }}-${{ matrix.arch-name }}${{ matrix.file-ext }}.sha256sum
+      
+      - name: Upload release
+        uses: xresloader/upload-to-github-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        with:
+          file: "artifacts/*"
+          tags: false
+          draft: true
+
+      - name: Release binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: my-artifact
+          path: artifacts/
