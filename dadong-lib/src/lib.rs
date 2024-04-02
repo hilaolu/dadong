@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tokio::net::tcp::OwnedReadHalf;
 
-const BUFFER_SIZE: usize = 4096;
+const BUFFER_SIZE: usize = 32768;
 pub struct CircularBuffer {
     buffer: [u8; BUFFER_SIZE],
     head: usize,
