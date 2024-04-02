@@ -1,3 +1,4 @@
+use futures::pin_mut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::select;
@@ -5,6 +6,8 @@ use tokio::select;
 use std::sync::Arc;
 
 use lazy_static::lazy_static;
+
+use dadong_lib::{read_tcp_to_buf, send_udp_from_buf, CircularBuffer};
 
 lazy_static! {
     static ref TCP_ADDR: String = std::env::var("tcp_addr").expect("tcp_addr must be set.");
@@ -40,46 +43,24 @@ async fn try_connect(local_addr: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::tcp::OwnedWriteHalf;
-
-async fn read_packet_from_tcp(
-    tcp_stream: &mut OwnedReadHalf,
-    buf: &mut [u8],
-) -> std::io::Result<u16> {
-    let size = tcp_stream.read_u16().await?;
-    tcp_stream.read_exact(&mut buf[..size as usize]).await?;
-    Ok(size)
-}
-
-async fn write_packet_to_tcp(
-    tcp_stream: &mut OwnedWriteHalf,
-    packet: &[u8],
-) -> std::io::Result<()> {
-    tcp_stream.write_u16(packet.len() as u16).await?;
-    tcp_stream.write_all(packet).await?;
-    Ok(())
-}
-
 async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> std::io::Result<()> {
     let (mut tcp_in, mut tcp_out) = tcp_stream.into_split();
     let udp_stream = Arc::new(udp_stream);
-    let (udp_in, udp_out) = (udp_stream.clone(), udp_stream);
+    let (udp_in, mut udp_out) = (udp_stream.clone(), udp_stream);
 
     let tcp2udp = async move {
-        let mut buf = [0; 4096];
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        let mut buf = CircularBuffer::new();
 
         loop {
             select! {
-                result=read_packet_from_tcp(&mut tcp_in,&mut buf)=>{
-                   if let Ok(size)=result{
-                       let _=udp_out.send_to(&buf[..size as usize], &addr).await;
-                       interval.reset();
-                   }else{
-                       //tcp close here
-                       break;
-                   }
+                result=read_tcp_to_buf(&mut tcp_in,&mut buf)=>{
+                   let _ = send_udp_from_buf(&mut udp_out,&mut buf,&addr).await;
+                     match result{
+                          Ok(0)=>{break;}
+                          Err(_)=>{break;}
+                          Ok(_)=>{interval.reset();}
+                     }
                 }
                 _=interval.tick()=>{
                     //timeout, shutdown tcp
@@ -92,13 +73,17 @@ async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> s
     let udp2tcp = async move {
         let mut buf = [0; 4096];
         loop {
-            if let Ok(size) = udp_in.recv(&mut buf).await {
+            if let Ok(size) = udp_in.recv(&mut buf[2..]).await {
                 if size == 0 {
                     //udp close here
                     break;
                 }
 
-                let result = write_packet_to_tcp(&mut tcp_out, &buf[..size as usize]).await;
+                //write u16 size into the first 2 bytes of buf
+                buf[0] = ((size >> 8) & 0xFF) as u8;
+                buf[1] = (size & 0xFF) as u8;
+
+                let result = tcp_out.write_all(&buf[..(size + 2) as usize]).await;
 
                 if result.is_err() {
                     //tcp close here
@@ -108,8 +93,11 @@ async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> s
         }
     };
 
-    tokio::spawn(udp2tcp);
-    tokio::spawn(tcp2udp);
+    tokio::spawn(async move {
+        pin_mut!(udp2tcp);
+        pin_mut!(tcp2udp);
+        futures::future::select(udp2tcp, tcp2udp).await;
+    });
 
     Ok(())
 }

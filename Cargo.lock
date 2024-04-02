@@ -69,6 +69,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 name = "dadong-client"
 version = "0.1.0"
 dependencies = [
+ "dadong-lib",
  "dotenv",
  "futures",
  "lazy_static",
@@ -77,9 +78,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dadong-lib"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "dadong-server"
 version = "0.1.0"
 dependencies = [
+ "dadong-lib",
  "dotenv",
  "futures",
  "lazy_static",

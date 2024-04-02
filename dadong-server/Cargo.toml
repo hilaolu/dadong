@@ -19,3 +19,4 @@ tokio = { version = "1.*", features = [
 dotenv = "*"
 lazy_static = "*"
 futures = { version = "0.3.*" }
+dadong-lib= { path = "../dadong-lib" }

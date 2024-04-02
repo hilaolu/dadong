@@ -1,5 +1,5 @@
 [workspace]
-members = ["dadong-client", "dadong-server"]
+members = ["dadong-client", "dadong-server","dadong-lib"]
 
 [profile.release]
 lto = true
