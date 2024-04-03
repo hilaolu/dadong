@@ -71,25 +71,37 @@ async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> s
     };
 
     let udp2tcp = async move {
-        let mut buf = [0; 4096];
+        const MTU: usize = 1500;
+        const BUFFER_SIZE: usize = 32768;
+        const PKT_HEAD_LENGTH: usize = 2;
+        let mut buf = [0; BUFFER_SIZE];
         loop {
-            if let Ok(size) = udp_in.recv(&mut buf[2..]).await {
-                if size == 0 {
-                    //udp close here
+            let _ = udp_in.readable().await;
+            let mut head = 0;
+            loop {
+                if head + PKT_HEAD_LENGTH + MTU > BUFFER_SIZE {
                     break;
                 }
+                match udp_in.try_recv(&mut buf[head + PKT_HEAD_LENGTH..]) {
+                    Ok(0) => {
+                        break;
+                    }
+                    Ok(size) => {
+                        //write u16 size into the first 2 bytes of buf
+                        buf[head + 0] = ((size >> 8) & 0xFF) as u8;
+                        buf[head + 1] = (size & 0xFF) as u8;
 
-                //write u16 size into the first 2 bytes of buf
-                buf[0] = ((size >> 8) & 0xFF) as u8;
-                buf[1] = (size & 0xFF) as u8;
-
-                let result = tcp_out.write_all(&buf[..(size + 2) as usize]).await;
-
-                if result.is_err() {
-                    //tcp close here
-                    break;
+                        head += size + PKT_HEAD_LENGTH;
+                    }
+                    Err(_) => {
+                        break;
+                    }
                 }
-            };
+            }
+            let result = tcp_out.write_all(&buf[..head as usize]).await;
+            if result.is_err() {
+                break;
+            }
         }
     };
 
