@@ -25,10 +25,16 @@ async fn main() -> io::Result<()> {
 
     let udp_in = udp_listener.clone();
 
+    const MAX_STANDBY_TCP: usize = 2;
+    let (connection_tx, mut connection_rx) = tokio::sync::mpsc::channel(MAX_STANDBY_TCP);
+
     // Spawn a task to handle incoming packets
     let mut buf = [0; 4096];
     loop {
         select! {
+            Ok((stream, _))=tcp_listenser.accept()=>{
+                let _=connection_tx.try_send(stream);
+            }
             //remove stale mapping
             Some(addr)=stale_rx.recv()=>{
                 addr2handler.remove(&addr);
@@ -43,24 +49,23 @@ async fn main() -> io::Result<()> {
                     let _=tx.send(pkt).await;
                 }else{
                     //create a new tcp tunnel
-                    let (stream, remote) = {
-                        loop{
-                            let (mut stream, remote)=tcp_listenser.accept().await.unwrap();
 
-                            //Address Handshake
-                            let target=&REMOTE_ADDR;
-                            let _=stream.write_u8(target.len() as u8).await;
-                            let result=stream.write_all(target.as_bytes()).await;
-                            if result.is_ok(){
-                                break (stream, remote);
-                            }
-                        }
+                    let mut stream=if let Ok(stream)=connection_rx.try_recv(){
+                        stream 
+                    }else{
+                        continue;
                     };
+
+                    println!("create a new tcp tunnel");
+
+                    //Address Handshake
+                    let target=&REMOTE_ADDR;
+                    let _=stream.write_u8(target.len() as u8).await;
+                    let _=stream.write_all(target.as_bytes()).await;
 
                     let (mut tcp_in,mut tcp_out)=stream.into_split();
 
 
-                    println!("create a new tcp tunnel {}",remote);
 
                     //create a new handler in new tokio task
                     let (tx, mut rx) = tokio::sync::mpsc::channel(4);

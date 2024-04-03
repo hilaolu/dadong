@@ -19,9 +19,7 @@ async fn main() -> std::io::Result<()> {
 
     loop {
         let result = try_connect(client_addr).await;
-        if result.is_err() {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
     }
 }
 
@@ -30,18 +28,14 @@ async fn try_connect(local_addr: &str) -> std::io::Result<()> {
     let stream = TcpStream::connect(local_addr);
 
     let handshake = async move {
-        let mut stream = stream.await?;
-        let addr_length = stream.read_u8().await?;
-        let mut addr = vec![0u8; addr_length as usize];
-        stream.read_exact(&mut addr).await?;
-        let addr = String::from_utf8(addr).unwrap_or_default();
-        Ok::<_, std::io::Error>((stream, addr))
+        let stream = stream.await?;
+        Ok::<_, std::io::Error>(stream)
     };
 
     let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(15));
     tokio::pin!(timeout);
 
-    let (stream, addr) = select! {
+    let stream = select! {
         Ok(result)=handshake=>{
             result
         }
@@ -51,17 +45,21 @@ async fn try_connect(local_addr: &str) -> std::io::Result<()> {
         }
     };
 
-    // Accept an incoming connection
-    println!("Handshake success!");
-
-    let udp_listener = UdpSocket::bind("0.0.0.0:0").await?;
     let _ = tokio::spawn(async move {
-        let _ = handle(stream, udp_listener, addr).await;
+        let _ = handle(stream).await;
     });
+
     Ok(())
 }
 
-async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> std::io::Result<()> {
+async fn handle(mut tcp_stream: TcpStream) -> std::io::Result<()> {
+    let udp_stream = UdpSocket::bind("0.0.0.0:0").await?;
+    let addr_length = tcp_stream.read_u8().await?;
+    let mut addr = vec![0u8; addr_length as usize];
+    tcp_stream.read_exact(&mut addr).await?;
+    let addr = String::from_utf8(addr).unwrap_or_default();
+    println!("Handshake success!");
+
     let (mut tcp_in, mut tcp_out) = tcp_stream.into_split();
     let udp_stream = Arc::new(udp_stream);
     let (udp_in, mut udp_out) = (udp_stream.clone(), udp_stream);
