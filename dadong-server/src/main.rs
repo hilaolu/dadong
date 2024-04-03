@@ -72,7 +72,7 @@ async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> s
 
     let udp2tcp = async move {
         const MTU: usize = 1500;
-        const BUFFER_SIZE: usize = 32768;
+        const BUFFER_SIZE: usize = 8192;
         const PKT_HEAD_LENGTH: usize = 2;
         let mut buf = [0; BUFFER_SIZE];
         loop {
