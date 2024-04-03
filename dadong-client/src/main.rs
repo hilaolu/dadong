@@ -44,11 +44,6 @@ async fn main() -> io::Result<()> {
                 }else{
                     //create a new tcp tunnel
                     let (stream, remote) = tcp_listenser.accept().await.unwrap();
-                    println!("create a new tcp tunnel {}",remote);
-
-                    //create a new handler in new tokio task
-                    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-                    let _=tx.send(pkt).await;
 
                     let (mut tcp_in,mut tcp_out)=stream.into_split();
 
@@ -57,6 +52,11 @@ async fn main() -> io::Result<()> {
                     let _=tcp_out.write_u8(target.len() as u8).await;
                     let _=tcp_out.write_all(target.as_bytes()).await;
 
+                    println!("create a new tcp tunnel {}",remote);
+
+                    //create a new handler in new tokio task
+                    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+                    let _=tx.send(pkt).await;
 
                     addr2handler.insert(addr.clone(),tx);
 
