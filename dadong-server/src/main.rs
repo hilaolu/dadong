@@ -27,16 +27,34 @@ async fn main() -> std::io::Result<()> {
 
 async fn try_connect(local_addr: &str) -> std::io::Result<()> {
     println!("Create connection, awaiting for response!");
-    let mut stream = TcpStream::connect(local_addr).await?;
+    let stream = TcpStream::connect(local_addr);
+
+    let handshake = async move {
+        let mut stream = stream.await?;
+        let addr_length = stream.read_u8().await?;
+        let mut addr = vec![0u8; addr_length as usize];
+        stream.read_exact(&mut addr).await?;
+        let addr = String::from_utf8(addr).unwrap_or_default();
+        Ok::<_, std::io::Error>((stream, addr))
+    };
+
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(15));
+    tokio::pin!(timeout);
+
+    let (stream, addr) = select! {
+        Ok(result)=handshake=>{
+            result
+        }
+        _=&mut timeout=>{
+            println!("Timeout!");
+            return Ok(());
+        }
+    };
 
     // Accept an incoming connection
-    let addr_length = stream.read_u8().await?;
-    let mut addr = vec![0u8; addr_length as usize];
-    stream.read_exact(&mut addr).await?;
-    let addr = String::from_utf8(addr).unwrap_or_default();
+    println!("Handshake success!");
 
     let udp_listener = UdpSocket::bind("0.0.0.0:0").await?;
-    println!("Handshake success!");
     let _ = tokio::spawn(async move {
         let _ = handle(stream, udp_listener, addr).await;
     });
