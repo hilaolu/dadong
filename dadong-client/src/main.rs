@@ -1,7 +1,7 @@
 use futures::{io, pin_mut};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::select;
 
@@ -35,6 +35,7 @@ async fn main() -> io::Result<()> {
             }
 
             Ok((size, addr))= udp_in.recv_from(&mut buf) => {
+                let port=addr.port();
                 let addr=addr.to_string();
                 let mut pkt=vec![((size>>8) & 0xFF) as u8,(size & 0xFF) as u8];
                 pkt.extend(&buf[..size]);
@@ -49,10 +50,15 @@ async fn main() -> io::Result<()> {
 
                             //Address Handshake
                             let target=&REMOTE_ADDR;
-                            let _=stream.write_u8(target.len() as u8).await;
-                            let result=stream.write_all(target.as_bytes()).await;
-                            if result.is_ok(){
-                                break (stream, remote);
+                            let len=target.len() as u8;
+                            let _=stream.write_u16(port).await;
+                            let _=stream.write_u8(len).await;
+                            let _=stream.write_all(target.as_bytes()).await;
+                            let _=stream.write_all(&pkt).await;
+                            if let Ok(p)=stream.read_u16().await{
+                                if p==port{
+                                    break (stream, remote);
+                                }
                             }
                         }
                     };
@@ -64,8 +70,6 @@ async fn main() -> io::Result<()> {
 
                     //create a new handler in new tokio task
                     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-                    let _=tx.send(pkt).await;
-
 
 
                     addr2handler.insert(addr.clone(),tx);

@@ -31,7 +31,9 @@ async fn try_connect(local_addr: &str) -> std::io::Result<()> {
 
     let handshake = async move {
         let mut stream = stream.await?;
+        let port = stream.read_u16().await?;
         let addr_length = stream.read_u8().await?;
+        let _ = stream.write_u16(port).await?;
         let mut addr = vec![0u8; addr_length as usize];
         stream.read_exact(&mut addr).await?;
         let addr = String::from_utf8(addr).unwrap_or_default();
