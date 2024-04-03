@@ -55,12 +55,12 @@ async fn handle(tcp_stream: TcpStream, udp_stream: UdpSocket, addr: String) -> s
         loop {
             select! {
                 result=read_tcp_to_buf(&mut tcp_in,&mut buf)=>{
-                   let _ = send_udp_from_buf(&mut udp_out,&mut buf,&addr).await;
-                     match result{
-                          Ok(0)=>{break;}
-                          Err(_)=>{break;}
-                          Ok(_)=>{interval.reset();}
-                     }
+                    let _=send_udp_from_buf(&mut udp_out,&mut buf,&addr).await;
+                    match result{
+                        Ok(0)=>{break;}
+                        Err(_)=>{break;}
+                        Ok(_)=>{interval.reset();}
+                    }
                 }
                 _=interval.tick()=>{
                     //timeout, shutdown tcp
