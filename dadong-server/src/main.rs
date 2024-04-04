@@ -18,6 +18,7 @@ lazy_static! {
 async fn main() -> std::io::Result<()> {
     loop {
         let _ = server().await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
 }
 async fn server() -> std::io::Result<()> {
