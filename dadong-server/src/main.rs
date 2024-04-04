@@ -14,50 +14,72 @@ lazy_static! {
 }
 
 #[tokio::main(flavor = "current_thread")]
+
 async fn main() -> std::io::Result<()> {
+    loop {
+        let _ = server().await;
+    }
+}
+async fn server() -> std::io::Result<()> {
     let client_addr = &TCP_ADDR;
 
-    loop {
-        let result = try_connect(client_addr).await;
-        if result.is_err() {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    let mut control_stream = TcpStream::connect(client_addr.to_string()).await?;
+    control_stream.write_u8(255).await?;
+    match control_stream.read_u8().await {
+        Ok(255) => {
+            println!("Control channel established: {:?}", client_addr.to_string());
+        }
+        _ => {
+            return Ok(());
         }
     }
+
+    let (mut control_rx, mut control_tx) = control_stream.into_split();
+
+    let dog = async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            match control_tx.write_u8(0).await {
+                Err(_) => {
+                    println!("Disconnected");
+                    break;
+                }
+                _ => {}
+            }
+        }
+    };
+
+    let manager = async move {
+        loop {
+            if let Ok(_) = control_rx.read_u8().await {
+                let _ = tokio::spawn(async move {
+                    let _ = try_connect(client_addr).await;
+                });
+            } else {
+                break;
+            };
+        }
+    };
+
+    pin_mut!(dog);
+    pin_mut!(manager);
+    futures::future::select(dog, manager).await;
+
+    Ok(())
 }
 
 async fn try_connect(local_addr: &str) -> std::io::Result<()> {
     println!("Create connection, awaiting for response!");
-    let stream = TcpStream::connect(local_addr);
-
-    let handshake = async move {
-        let mut stream = stream.await?;
-        let addr_length = stream.read_u8().await?;
-        let mut addr = vec![0u8; addr_length as usize];
-        stream.read_exact(&mut addr).await?;
-        let addr = String::from_utf8(addr).unwrap_or_default();
-        Ok::<_, std::io::Error>((stream, addr))
-    };
-
-    let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(15));
-    tokio::pin!(timeout);
-
-    let (stream, addr) = select! {
-        Ok(result)=handshake=>{
-            result
-        }
-        _=&mut timeout=>{
-            println!("Timeout!");
-            return Ok(());
-        }
-    };
-
-    // Accept an incoming connection
+    let mut stream = TcpStream::connect(local_addr).await?;
+    let addr_length = stream.read_u8().await?;
+    let mut addr = vec![0u8; addr_length as usize];
+    stream.read_exact(&mut addr).await?;
+    let addr = String::from_utf8(addr).unwrap_or_default();
     println!("Handshake success!");
 
+    // Accept an incoming connection
     let udp_listener = UdpSocket::bind("0.0.0.0:0").await?;
-    let _ = tokio::spawn(async move {
-        let _ = handle(stream, udp_listener, addr).await;
-    });
+    let _ = handle(stream, udp_listener, addr).await;
     Ok(())
 }
 
